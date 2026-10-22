@@ -1,0 +1,42 @@
+package com.veratech.app
+
+import android.content.Context
+import com.wireguard.crypto.KeyPair
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+object Warp {
+    fun ensureRegistered(ctx: Context) {
+        val sp = ctx.getSharedPreferences("warp", Context.MODE_PRIVATE)
+        if (sp.getString("priv", null) != null) return
+        val kp = KeyPair()
+        val body = JSONObject()
+            .put("key", kp.publicKey.toBase64())
+            .put("install_id", "").put("fcm_token", "")
+            .put("tos", SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).format(Date()))
+            .put("model", "Android").put("serial_number", "").put("locale", "en_US")
+        val c = URL("https://api.cloudflareclient.com/v0a2158/reg").openConnection() as HttpURLConnection
+        c.requestMethod = "POST"
+        c.connectTimeout = 15000; c.readTimeout = 15000
+        c.doOutput = true
+        c.setRequestProperty("Content-Type", "application/json")
+        c.setRequestProperty("User-Agent", "okhttp/3.12.1")
+        c.setRequestProperty("CF-Client-Version", "a-6.3-2158")
+        c.outputStream.use { it.write(body.toString().toByteArray()) }
+        if (c.responseCode !in 200..299) throw Exception("WARP register failed (HTTP ${c.responseCode})")
+        val json = JSONObject(c.inputStream.bufferedReader().readText())
+        val cfg = json.getJSONObject("config")
+        val addrs = cfg.getJSONObject("interface").getJSONObject("addresses")
+        val peer = cfg.getJSONArray("peers").getJSONObject(0)
+        sp.edit()
+            .putString("priv", kp.privateKey.toBase64())
+            .putString("v4", addrs.getString("v4"))
+            .putString("v6", addrs.getString("v6"))
+            .putString("peer", peer.getString("public_key"))
+            .apply()
+    }
+}
